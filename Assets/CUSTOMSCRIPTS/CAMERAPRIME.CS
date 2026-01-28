@@ -3,97 +3,85 @@ using UnityEngine;
 namespace Awsim.Common
 {
     /// <summary>
-    /// 精简版相机：
-    /// - 仅保留：组合键(默认 LeftShift)+鼠标/方向键 的视角偏移
-    /// - 放开组合键后自动平滑回到初始朝向（初始朝向以 camera 在 target 下的本地方向为基准）
+    /// 跟随目标一比一位置旋转，同时支持组合键+鼠标/方向键偏航/俯仰回正
     /// </summary>
-    public class FollowCameraSimpleAlt : MonoBehaviour
+    public class FollowCameraRigidAlt : MonoBehaviour
     {
-        [Header("目标 (若为空且本相机是子物体，将自动设为 parent)")]
-        [SerializeField] Transform targetSimple;
+        [Header("目标")]
+        [SerializeField] private Transform targetAlt;
 
         [Header("组合键与灵敏度")]
-        [SerializeField] KeyCode comboKey = KeyCode.LeftShift;
-        [SerializeField] float yawSensitivity = 3.0f;   // 鼠标 X -> 偏航灵敏度（度 / 单位鼠标输入）
-        [SerializeField] float pitchSensitivity = 3.0f; // 鼠标 Y -> 俯仰灵敏度
+        [SerializeField] private KeyCode comboKeyAlt = KeyCode.LeftShift;
+        [SerializeField] private float yawSensitivityAlt = 3f;   // 鼠标X偏航灵敏度
+        [SerializeField] private float pitchSensitivityAlt = 3f; // 鼠标Y俯仰灵敏度
 
         [Header("俯仰限制")]
-        [SerializeField] float pitchMin = -80f;
-        [SerializeField] float pitchMax = 80f;
+        [SerializeField] private float pitchMinAlt = -80f;
+        [SerializeField] private float pitchMaxAlt = 80f;
 
-        [Header("放开组合键后回正速度 (度/秒)")]
-        [SerializeField] float returnSpeedDegPerSec = 180f;
+        [Header("放开组合键回正速度 (度/秒)")]
+        [SerializeField] private float returnSpeedDegPerSecAlt = 180f;
 
-        // 内部状态（均为相对于基准的偏移）
-        float yawOffsetDeg = 0f;    // 水平偏航角 (度)
-        float pitchOffsetDeg = 0f;  // 俯仰角 (度)
+        // 内部状态
+        private Vector3 initialLocalPosAlt;   // 相对目标本地位置偏移
+        private Quaternion initialLocalRotAlt; // 相对目标本地旋转偏移
 
-        Quaternion baselineLocalRot = Quaternion.identity; // baseline = camera 相对于 target 的本地旋转
+        private float yawOffsetAlt = 0f;   // 当前偏航角
+        private float pitchOffsetAlt = 0f; // 当前俯仰角
 
         void Start()
         {
-            // 如果没有指定 target，而摄像机有 parent，则默认用 parent 作为 target
-            if (targetSimple == null && transform.parent != null)
-                targetSimple = transform.parent;
+            if (targetAlt == null && transform.parent != null)
+                targetAlt = transform.parent;
 
-            if (targetSimple != null)
+            if (targetAlt != null)
             {
-                // baselineLocalRot 使得： transform.rotation == target.rotation * baselineLocalRot
-                baselineLocalRot = Quaternion.Inverse(targetSimple.rotation) * transform.rotation;
+                // 使用相对目标的本地偏移（位置+旋转）
+                initialLocalPosAlt = targetAlt.InverseTransformPoint(transform.position);
+                initialLocalRotAlt = Quaternion.Inverse(targetAlt.rotation) * transform.rotation;
             }
             else
             {
-                // 没有 target 时，用当前 localRotation 为 baseline（相对于自身父物体）
-                baselineLocalRot = transform.localRotation;
+                initialLocalPosAlt = transform.localPosition;
+                initialLocalRotAlt = transform.localRotation;
             }
         }
 
         void Update()
         {
-            bool comboHeld = Input.GetKey(comboKey);
+            if (targetAlt == null) return;
+
+            bool comboHeld = Input.GetKey(comboKeyAlt);
 
             if (comboHeld)
             {
-                // 鼠标输入：累积偏移（度）
                 float mx = Input.GetAxis("Mouse X");
                 float my = Input.GetAxis("Mouse Y");
 
-                yawOffsetDeg += mx * yawSensitivity;
-                pitchOffsetDeg -= my * pitchSensitivity; // 习惯：向上移动鼠标通常让视角抬头（你可按需反转）
+                yawOffsetAlt += mx * yawSensitivityAlt;
+                pitchOffsetAlt -= my * pitchSensitivityAlt; // 鼠标向上抬头
 
-                // 方向键：直接设为四个预设角（保持与旧脚本一致）
-                if (Input.GetKeyDown(KeyCode.UpArrow)) yawOffsetDeg = 180f;
-                if (Input.GetKeyDown(KeyCode.DownArrow)) yawOffsetDeg = 0f;
-                if (Input.GetKeyDown(KeyCode.LeftArrow)) yawOffsetDeg = 90f;
-                if (Input.GetKeyDown(KeyCode.RightArrow)) yawOffsetDeg = 270f;
+                // 方向键快速设定角度
+                if (Input.GetKeyDown(KeyCode.UpArrow)) yawOffsetAlt = 180f;
+                if (Input.GetKeyDown(KeyCode.DownArrow)) yawOffsetAlt = 0f;
+                if (Input.GetKeyDown(KeyCode.LeftArrow)) yawOffsetAlt = 90f;
+                if (Input.GetKeyDown(KeyCode.RightArrow)) yawOffsetAlt = 270f;
 
-                // 限制 pitch 范围
-                pitchOffsetDeg = Mathf.Clamp(pitchOffsetDeg, pitchMin, pitchMax);
+                pitchOffsetAlt = Mathf.Clamp(pitchOffsetAlt, pitchMinAlt, pitchMaxAlt);
             }
             else
             {
-                // 放开组合键：平滑把偏航和俯仰回正到 0（相对于 baseline）
-                float step = returnSpeedDegPerSec * Time.deltaTime;
-                yawOffsetDeg = Mathf.MoveTowardsAngle(yawOffsetDeg, 0f, step);
-                pitchOffsetDeg = Mathf.MoveTowards(pitchOffsetDeg, 0f, step);
+                float step = returnSpeedDegPerSecAlt * Time.deltaTime;
+                yawOffsetAlt = Mathf.MoveTowardsAngle(yawOffsetAlt, 0f, step);
+                pitchOffsetAlt = Mathf.MoveTowards(pitchOffsetAlt, 0f, step);
             }
 
-            // 计算当前偏移四元数（先俯仰再偏航，这样俯仰是相机本地 X 轴）
-            Quaternion offset = Quaternion.Euler(pitchOffsetDeg, yawOffsetDeg, 0f);
+            // 偏航/俯仰旋转四元数
+            Quaternion offset = Quaternion.Euler(pitchOffsetAlt, yawOffsetAlt, 0f);
 
-            // 应用：如果有 target，则按 world = target.rotation * baselineLocalRot * offset
-            if (targetSimple != null)
-            {
-                transform.rotation = targetSimple.rotation * baselineLocalRot * offset;
-
-                // 保持摄像机与 target 的相对位置不变（不做平移，只修改朝向）
-                // 如果要同时保持相对位置，请确保摄像机初始位置就是你期望的相对位置（本脚本不修改位置）。
-            }
-            else
-            {
-                // 无 target：用 localRotation 基准
-                transform.localRotation = baselineLocalRot * offset;
-            }
+            // 更新位置和旋转，一比一跟随目标 + 初始偏移 + 偏航/俯仰偏移
+            transform.position = targetAlt.TransformPoint(initialLocalPosAlt);
+            transform.rotation = targetAlt.rotation * initialLocalRotAlt * offset;
         }
     }
 }
