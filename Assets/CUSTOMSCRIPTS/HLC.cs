@@ -2,12 +2,11 @@ using UnityEngine;
 
 public class HeadlightController : MonoBehaviour
 {
-    [Header("子灯名称")]
     public string leftLightName = "LightL";
     public string rightLightName = "LightR";
 
-    [Header("切换灯光的按键")]
     public KeyCode toggleKey = KeyCode.I;
+    public int joystickButton = 8;
 
     private Light leftLight;
     private Light rightLight;
@@ -18,9 +17,6 @@ public class HeadlightController : MonoBehaviour
     {
         leftLight = FindChildLight(leftLightName);
         rightLight = FindChildLight(rightLightName);
-
-        if (!leftLight || !rightLight)
-            Debug.LogWarning("HeadlightController: 找不到 LightL 或 LightR，请确认名字正确");
     }
 
     void Start()
@@ -30,7 +26,10 @@ public class HeadlightController : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(toggleKey))
+        bool keyboard = Input.GetKeyDown(toggleKey);
+        bool joystick = Input.GetKeyDown((KeyCode)((int)KeyCode.JoystickButton0 + joystickButton));
+
+        if (keyboard || joystick)
         {
             isOn = !isOn;
             SetLights(isOn);
@@ -45,7 +44,6 @@ public class HeadlightController : MonoBehaviour
 
     private Light FindChildLight(string name)
     {
-        // 优先按名字查找
         Transform t = transform.Find(name);
         if (t != null)
         {
@@ -53,7 +51,6 @@ public class HeadlightController : MonoBehaviour
             if (l != null) return l;
         }
 
-        // 兜底：遍历所有子对象 Light
         Light[] lights = GetComponentsInChildren<Light>(true);
         foreach (var l in lights)
         {
